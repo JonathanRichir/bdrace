@@ -1,0 +1,89 @@
+## Établir une connexion (sous VPN)
+## Nécessaire d'avoir un identifiant et un login ULg pour ce faire
+library(RPostgreSQL)
+## loads the PostgreSQL driver
+drv <- dbDriver("PostgreSQL")
+## Open a connection
+con <- dbConnect(drv, user = "master", password = "master_gher", dbname = "race_db_v2", host = "10.16.8.17", port = "5432" )
+Sys.setenv(TZ = "UTC")
+
+
+## temperature atmospherique mat meteo station INSJD
+
+tempINSJD <- dbGetQuery(con, "SELECT data.daytime, data.dataparam_codeparam, timeseries.tssta_codesta, data.datavalue as temperature, data.measdata_codemeas, timeseries.tssci_codesci FROM public.data, public.timeseries WHERE timeseries.codeds = data.dasa_codeds AND timeseries.tssta_codesta = 'INSJD' AND data.dataparam_codeparam = 'airtemp'")
+# rem.: ne pas insérer "public.station" dans la requête R; n'apparait que dans la requête SQL.
+# order temp data by daytime
+library("dplyr")
+tempINSJD %>% arrange(daytime) -> tempINSJD
+unique(as.POSIXlt(tempINSJD$daytime)$isdst)
+# isdst: Daylight Saving Time flag. Positive if in force, zero if not, negative if unknown.
+show(head(tempINSJD$daytime))
+# save dataset (.csv, .rds)
+csvwrite <- readr::write_csv
+tempINSJD %>% csvwrite("RACE/Temp_air vs water/tempINSJD.csv")
+saveRDS(tempINSJD, file = "RACE/Temp_air vs water/tempINSJD.rds")
+# graphe temp station INSJD
+plot(tempINSJD$temperature, type = "l", x = tempINSJD$daytime, ylab = "air temp. (°C)", xlab = "date", main = "Evolution of air temperature at station 'INSJD'")
+
+
+## temperature eau port stareso stations INST1 et NEW03
+
+tempINST1 <- dbGetQuery(con, "SELECT data.daytime, data.dataparam_codeparam, timeseries.tssta_codesta, data.datavalue as temperature, data.measdata_codemeas, timeseries.tssci_codesci FROM public.data, public.timeseries WHERE timeseries.codeds = data.dasa_codeds AND timeseries.tssta_codesta = 'INST1' AND data.dataparam_codeparam = 'watertemp'")
+# order temp data by daytime
+tempINST1 %>% arrange(daytime) -> tempINST1
+unique(as.POSIXlt(tempINST1$daytime)$isdst)
+# isdst: Daylight Saving Time flag. Positive if in force, zero if not, negative if unknown.
+show(head(tempINST1$daytime))
+# save dataset (.csv, .rds)
+tempINST1 %>% csvwrite("RACE/Temp_air vs water/tempINST1.csv")
+saveRDS(tempINST1, file = "RACE/Temp_air vs water/tempINST1.rds")
+# graphe temp station INST1
+plot(tempINST1$temperature, type = "l", x = tempINST1$daytime, ylab = "water temp. (°C)", xlab = "date", main = "Evolution of water temperature at station 'INST1'")
+
+tempNEW03 <- dbGetQuery(con, "SELECT data.daytime, data.dataparam_codeparam, timeseries.tssta_codesta, data.datavalue as temperature, data.measdata_codemeas, timeseries.tssci_codesci FROM public.data, public.timeseries WHERE timeseries.codeds = data.dasa_codeds AND timeseries.tssta_codesta = 'NEW03' AND data.dataparam_codeparam = 'watertemp'")
+# order temp data by daytime
+tempNEW03 %>% arrange(daytime) -> tempNEW03
+unique(as.POSIXlt(tempNEW03$daytime)$isdst)
+# isdst: Daylight Saving Time flag. Positive if in force, zero if not, negative if unknown.
+show(head(tempNEW03$daytime))
+# save dataset (.csv, .rds)
+tempNEW03 %>% csvwrite("RACE/Temp_air vs water/tempNEW03.csv")
+saveRDS(tempNEW03, file = "RACE/Temp_air vs water/tempNEW03.rds")
+# graphe temp station NEW03
+plot(tempNEW03$temperature, type = "l", x = tempNEW03$daytime, ylab = "water temp. (°C)", xlab = "date", main = "Evolution of water temperature at station 'NEW03'")
+
+
+## Metadata temp air_eau stations INSJD, INST01 et NEW03
+
+metadata <- dbGetQuery(con, "SELECT startday, endday, tssta_codesta, dataparam_codeparam, timestep, tssci_codesci, depth, measdata_codemeas, avg(datavalue), max(datavalue), min(datavalue), count(datavalue)
+                          FROM public.timeseries, public.data
+                          WHERE timeseries.codeds = data.dasa_codeds AND tssta_codesta IN ('INSJD', 'INST1', 'NEW03') and dataparam_codeparam IN ('watertemp', 'airtemp')
+                          GROUP BY startday, endday, tssta_codesta, dataparam_codeparam, timestep, tssci_codesci, depth, measdata_codemeas
+                          ORDER BY tssta_codesta ASC, startday ASC")
+unique(as.POSIXlt(metadata$startday)$isdst)
+unique(as.POSIXlt(metadata$endday)$isdst)
+# isdst: Daylight Saving Time flag. Positive if in force, zero if not, negative if unknown.
+show(head(metadata$startday))
+show(head(metadata$endday))
+# save metadata (.csv, .rds)
+metadata %>% csvwrite("RACE/Temp_air vs water/metadata.csv")
+saveRDS(metadata, file = "RACE/Temp_air vs water/metadata.rds")
+
+
+## Metadata temp air_eau stations INSJD, INST01 et NEW03 + les informations sur les instruments de mesures
+
+metadata_instru <- dbGetQuery(con,
+                             "SELECT timeseries.startday, timeseries.endday, timeseries.tssta_codesta, data.dataparam_codeparam, timeseries.timestep, timeseries.tssci_codesci, timeseries.depth, data.measdata_codemeas, measuringdevice.instr_type, measuringdevice.description, measuringdevice.model, avg(data.datavalue) AS average, max(data.datavalue) AS maximum, min(data.datavalue) AS minimum, count(data.datavalue) AS count
+                              FROM public.timeseries, public.data, public.measuringdevice
+                              WHERE timeseries.codeds = data.dasa_codeds AND data.measdata_codemeas = measuringdevice.codemeas AND timeseries.tssta_codesta IN ('INSJD', 'INST1', 'NEW03') AND data.dataparam_codeparam IN ('airtemp', 'watertemp')
+                             GROUP BY timeseries.startday, timeseries.endday, timeseries.tssta_codesta, data.dataparam_codeparam, timeseries.timestep, timeseries.tssci_codesci, timeseries.depth, data.measdata_codemeas, measuringdevice.instr_type, measuringdevice.description, measuringdevice.model
+                            ORDER BY timeseries.tssta_codesta ASC, timeseries.startday ASC")
+unique(as.POSIXlt(metadata_instru$startday)$isdst)
+unique(as.POSIXlt(metadata_instru$endday)$isdst)
+# isdst: Daylight Saving Time flag. Positive if in force, zero if not, negative if unknown.
+show(head(metadata_instru$startday))
+show(head(metadata_instru$endday))
+# save metadata_instru (.csv, .rds)
+metadata_instru %>% csvwrite("RACE/Temp_air vs water/metadata_instru.csv")
+saveRDS(metadata_instru, file = "RACE/Temp_air vs water/metadata_instru.rds")
+
